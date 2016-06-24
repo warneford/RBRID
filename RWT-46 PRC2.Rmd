@@ -1,0 +1,44 @@
+---
+title: "RWT-46 PRC2 IP_RBRID"
+author: "Robert Warneford-Thomson"
+date: "6/24/2016"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, message=FALSE)
+```
+
+## Import RBR-ID data
+```{r}
+library(gdata)
+installXLSXsupport()
+Prot_table <-read.xls(xls = "Robert test 1 with mouse proteome.xlsx", sheet = 1))
+```
+
+## Sanitize Sample names + Add description
+```{r}
+samples <-c("-4su.Quant_01","-4su.Quant_02","-4su_1:10_Quant_01", "-4su_1:10_Quant_02","+4su.Quant_01","+4su.Quant_02","+4su_1:10_Quant_01","+4su_1:10_Quant_02")
+colnames(Prot_table)[8:15] <- samples
+Prot_table[,8:15] <- as.numeric(unlist(Prot_table[,8:15]))
+read.tab
+```
+
+## normalize peptide intensity relative to total intensity
+```{r normalize}
+sumIntensity <- apply(Prot_table[,8:15], 2, function(x) {sum(x)})
+Prot_table <- cbind(Prot_table, Prot_table[,8:15]/sumIntensity)
+colnames(Prot_table)[17:24] <- paste0(samples,"_Norm")
+View(Prot_table)
+```
+
+``` {r average}
+Prot_table[Prot_table==0] <- NA
+
+apply(Prot_table[,17:18], 1, function(x) {mean(x,na.rm = TRUE)})
+
+
+Prot_table
+
+```
+
