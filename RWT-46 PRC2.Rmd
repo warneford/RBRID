@@ -13,32 +13,71 @@ knitr::opts_chunk$set(echo = TRUE, message=FALSE)
 ```{r}
 library(gdata)
 installXLSXsupport()
-Prot_table <-read.xls(xls = "Robert test 1 with mouse proteome.xlsx", sheet = 1))
+Prot_table <-read.xls(xls = "Robert test 1 with mouse proteome.xlsx", sheet = 1)
 ```
 
 ## Sanitize Sample names + Add description
 ```{r}
-samples <-c("-4su.Quant_01","-4su.Quant_02","-4su_1:10_Quant_01", "-4su_1:10_Quant_02","+4su.Quant_01","+4su.Quant_02","+4su_1:10_Quant_01","+4su_1:10_Quant_02")
+samples <-c("-4su.Quant_01","-4su.Quant_02","-4su_0.1x_Quant_01", "-4su_0.1x_Quant_02","+4su.Quant_01","+4su.Quant_02","+4su_0.1x_Quant_01","+4su_0.1x_Quant_02")
 colnames(Prot_table)[8:15] <- samples
 Prot_table[,8:15] <- as.numeric(unlist(Prot_table[,8:15]))
-read.tab
 ```
 
 ## normalize peptide intensity relative to total intensity
 ```{r normalize}
-sumIntensity <- apply(Prot_table[,8:15], 2, function(x) {sum(x)})
+sumIntensity <- colSums(Prot_table[,8:15],na.rm = T)
 Prot_table <- cbind(Prot_table, Prot_table[,8:15]/sumIntensity)
 colnames(Prot_table)[17:24] <- paste0(samples,"_Norm")
-View(Prot_table)
 ```
-
+## Calculate Average/Log-fold change
 ``` {r average}
 Prot_table[Prot_table==0] <- NA
 
-apply(Prot_table[,17:18], 1, function(x) {mean(x,na.rm = TRUE)})
+#Compute averages of technical replicates
+Avgs <- as.data.frame(lapply(c(17,19,21,23), function(x) {apply(Prot_table[,c(x,x+1)], 1, function(x) {mean(x,na.rm = TRUE)})}))
+colnames(Avgs)<- c("-4sU_1x_mean", "-4sU_1:10x_mean", "+4su_1x_mean", "+4su_1:10x_mean")
 
+# Convert NaN to zeros 
+Avgs[sapply(Avgs, is.nan)] <- 0
+Prot_table <- cbind(Prot_table, Avgs)
 
-Prot_table
-
+# Calculate Samples negative log2-fold change
+Prot_table$Log2fold_1x <- log2(Prot_table[,27]/Prot_table[,25])
+Prot_table$Log2fold_0.1x <- log2(Prot_table[,28]/Prot_table[,26])
 ```
 
+## Process data and calculate RBR-ID score
+``` {r Analysis}
+# Calculate p-value from one-sided t-test
+Prot_table$p.value_1x <- apply(Prot_table[, c(17, 18, 21, 22)], 1, function(x) {if (any(is.na(x))) {return(NA)} else { t.test( x[1:2], x[3:4],alternative = "greater")$p.value}})
+
+Prot_table$p.value_0.1x <- apply(Prot_table[, c(19, 20, 23, 24)], 1, function(x) {if (any(is.na(x))) {return(NA)} else { t.test( x[1:2], x[3:4],alternative = "greater")$p.value}})
+
+# RBR-ID score
+Prot_table$score_1x <- log(Prot_table$p.value_1x)*Prot_table$Log2fold_1x
+
+Prot_table$score_0.1x <- log(Prot_table$p.value_0.1x)*Prot_table$Log2fold_0.1x
+
+View(Prot_table)
+```
+
+## Calculate 'Add-in' contaminant-to-signal ratio
+  These include proteins that were purposefully added to the samples during the experiment (e.g. Protein G from beads, rabbit IgG)
+  
+``` {r 'Add in'}
+
+Addin_ID <- c("P19909", "P01870","P01826", "P01840","P01687")
+temp <- lapply(Addin_ID, function(x) {Prot_table[grep(pattern = paste0("^.+", x,".+$"), Prot_table$Proteins),]})
+Prot_Addin <- as.data.frame(do.call(rbind, temp))
+Add_Insum <- apply(Prot_Addin[,17:24],2, sum, na.rm=TRUE)
+Intensity_sum <- apply(Prot_table[,17:24],2, sum, na.rm=TRUE)
+
+#Proportion of Add-in contaminants to total peptide intensities
+Add_prop <- data.frame(AddinCont_signalratio = Add_Insum/Intensity_sum)
+
+
+## Calculate total contaminant-to-signal ratio
+``` {r }
+```
+
+## Determine reproducibility as f(x) of MS/MS input material
