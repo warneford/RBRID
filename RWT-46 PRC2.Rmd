@@ -18,47 +18,52 @@ Prot_table <-read.xls(xls = "Robert test 1 with mouse proteome.xlsx", sheet = 1)
 
 ## Sanitize Sample names + Add description
 ```{r}
-samples <-c("-4su.Quant_01","-4su.Quant_02","-4su_0.1x_Quant_01", "-4su_0.1x_Quant_02","+4su.Quant_01","+4su.Quant_02","+4su_0.1x_Quant_01","+4su_0.1x_Quant_02")
+samples <-c("no4su_01","no4su_02","no4su0.1x_01", "no4su0.1x_02","4su_01","4su_02","4su0.1x_01","4su_0.1x_02")
 colnames(Prot_table)[8:15] <- samples
 Prot_table[,8:15] <- as.numeric(unlist(Prot_table[,8:15]))
+Prot_table <- cbind(Pept_ID = c(1:nrow(Prot_table)), Prot_table)
+View(Prot_table)
 ```
 
 ## normalize peptide intensity relative to total intensity
 ```{r normalize}
-sumIntensity <- colSums(Prot_table[,8:15],na.rm = T)
-Prot_table <- cbind(Prot_table, Prot_table[,8:15]/sumIntensity)
-colnames(Prot_table)[17:24] <- paste0(samples,"_Norm")
+# Divide data by Sum of intensities
+Norm_data <-sweep(Prot_table[,9:16], 2, colSums(Prot_table[9:16], na.rm = T), FUN = "/")
+
+Prot_table <- cbind(Prot_table, Norm_data)
+colnames(Prot_table)[18:25] <- paste0(samples,"_Norm")
+
 ```
 ## Calculate Average/Log-fold change
 ``` {r average}
-Prot_table[Prot_table==0] <- NA
 
 #Compute averages of technical replicates
-Avgs <- as.data.frame(lapply(c(17,19,21,23), function(x) {apply(Prot_table[,c(x,x+1)], 1, function(x) {mean(x,na.rm = TRUE)})}))
-colnames(Avgs)<- c("-4sU_1x_mean", "-4sU_1:10x_mean", "+4su_1x_mean", "+4su_1:10x_mean")
+Avgs <- as.data.frame(lapply(c(18,20,22,24), function(x) {apply(Prot_table[,c(x,x+1)], 1, function(x) {mean(x,na.rm = TRUE)})}))
+colnames(Avgs)<- c("no4sU1x_mean", "no4sU0.1x_mean", "4su1x_mean", "4su0.1x_mean")
 
-# Convert NaN to zeros 
-Avgs[sapply(Avgs, is.nan)] <- 0
 Prot_table <- cbind(Prot_table, Avgs)
-
+ncol(Prot_table)
 # Calculate Samples negative log2-fold change
-Prot_table$Log2fold_1x <- log2(Prot_table[,27]/Prot_table[,25])
-Prot_table$Log2fold_0.1x <- log2(Prot_table[,28]/Prot_table[,26])
+Prot_table$Log2fold_1x <- log2(Prot_table[,28]/Prot_table[,26])
+Prot_table$Log2fold_0.1x <- log2(Prot_table[,29]/Prot_table[,27])
+
+Prot_table$Log2fold_1x[is.infinite(Prot_table$Log2fold_1x) | is.nan(Prot_table$Log2fold_1x)] <- NA
+Prot_table$Log2fold_0.1x[is.infinite(Prot_table$Log2fold_0.1x) | is.nan(Prot_table$Log2fold_0.1x)] <- NA
 ```
 
 ## Process data and calculate RBR-ID score
 ``` {r Analysis}
-# Calculate p-value from one-sided t-test
-Prot_table$p.value_1x <- apply(Prot_table[, c(17, 18, 21, 22)], 1, function(x) {if (any(is.na(x))) {return(NA)} else { t.test( x[1:2], x[3:4],alternative = "greater")$p.value}})
 
-Prot_table$p.value_0.1x <- apply(Prot_table[, c(19, 20, 23, 24)], 1, function(x) {if (any(is.na(x))) {return(NA)} else { t.test( x[1:2], x[3:4],alternative = "greater")$p.value}})
+# Calculate p-value from two-sided t-test
+Prot_table$p.value_1x <- apply(Prot_table[, c( "no4su_01_Norm","no4su_02_Norm","4su_01_Norm", "4su_02_Norm")], 1, function(x) {if (all(x==0)) {return(NA)} else { t.test( x[1:2], x[3:4],alternative = "two.sided")$p.value}})
+
+Prot_table$p.value_0.1x <- apply(Prot_table[, c( "no4su0.1x_01_Norm","no4su0.1x_02_Norm", "4su0.1x_01_Norm", "4su_0.1x_02_Norm")], 1, function(x) {if (all(x == 0)) {return(NA)} else { t.test( x[1:2], x[3:4],alternative = "two.sided")$p.value}})
 
 # RBR-ID score
 Prot_table$score_1x <- log(Prot_table$p.value_1x)*Prot_table$Log2fold_1x
 
 Prot_table$score_0.1x <- log(Prot_table$p.value_0.1x)*Prot_table$Log2fold_0.1x
 
-View(Prot_table)
 ```
 
 ## Calculate 'Add-in' contaminant-to-signal ratio
@@ -66,18 +71,91 @@ View(Prot_table)
   
 ``` {r 'Add in'}
 
+#Label contaminant types
 Addin_ID <- c("P19909", "P01870","P01826", "P01840","P01687")
-temp <- lapply(Addin_ID, function(x) {Prot_table[grep(pattern = paste0("^.+", x,".+$"), Prot_table$Proteins),]})
-Prot_Addin <- as.data.frame(do.call(rbind, temp))
-Add_Insum <- apply(Prot_Addin[,17:24],2, sum, na.rm=TRUE)
-Intensity_sum <- apply(Prot_table[,17:24],2, sum, na.rm=TRUE)
+temp <- lapply(Addin_ID, function(x) {grep(pattern = paste0("^.+", x,".+$"), Prot_table$Proteins, value = FALSE)})
+temp <- unlist(temp)
 
-#Proportion of Add-in contaminants to total peptide intensities
-Add_prop <- data.frame(AddinCont_signalratio = Add_Insum/Intensity_sum)
+Prot_table[,"Contaminant_type"] <- "Signal"
+Prot_table[temp,"Contaminant_type"] <- "Internal"
+Prot_table$Contaminant_type[(Prot_table$Potential.contaminant=="+") & (Prot_table$Contaminant_type != "Internal")] <- "External"
 
 
+library(ggplot2)
+library(reshape2)
+
+## Calcuate proportion of Contaminants to total peptide intensities
 ## Calculate total contaminant-to-signal ratio
-``` {r }
+Contam_prop <- data.frame(ID = names(Prot_table)[25:28], 
+                          Internal = colSums(Prot_table[which(Prot_table$Contaminant_type == "Internal"),c(25:28)]),
+                          External = colSums(Prot_table[which(Prot_table$Contaminant_type == "External"),c(25:28)]),
+                          Signal = colSums(Prot_table[which(Prot_table$Contaminant_type == "Signal"),c(25:28)]))
+rownames(Contam_prop)
+
+    #Add an id variable for the filled regions
+    
+    datm <- melt(cbind(Prot_table[,c(25:28)], Contaminant = Prot_table$Contaminant_type), id.vars = c('Contaminant'))
+
+library(scales)
+ggplot(datm,aes(x = variable, y = value, fill = Contaminant)) + 
+    geom_bar(position = "fill",stat = "identity") + 
+    scale_y_continuous(labels = percent_format()) +
+    coord_flip() +
+    scale_fill_discrete(guide = guide_legend(title = "Contaminant")) +
+    labs(x = "Treatment", y = "Percent of Total")
 ```
 
 ## Determine reproducibility as f(x) of MS/MS input material
+``` {r Reproducibility}
+
+# Obtain number of non-zero signal peptides per sample
+Pepdata <- list(Numpep = data.frame(ID = factor(samples, levels=unique(samples)), Numpep =  sapply(samples, function(x) +
+                                    {nrow(Prot_table[(is.na(Prot_table[[x]]) == F) & (Prot_table$Contaminant_type == "Signal"),])}, USE.NAMES = F)))
+
+ggplot(Pepdata$Numpep, aes(x = ID, y = Numpep)) +
+      geom_bar(stat = "identity", fill = "blue") +
+      labs(x = "Treatment", y = "# of peptides detected")
+
+# Identify peptides found in each sample
+
+Pepdata$Peplist <- lapply(samples, function(x) {Prot_table[(is.na(Prot_table[[x]]) == F) & (Prot_table$Contaminant_type == "Signal"), c("Pept_ID")]})
+names(Pepdata$Peplist) <- samples
+
+
+# All peptides detected in 1x samples
+Pepdata$Peplist$All_1x <- unique(c(Pepdata$Peplist$no4su_01, Pepdata$Peplist$no4su_02,Pepdata$Peplist$`4su_01`, Pepdata$Peplist$`4su_02`))
+
+
+# All proteins detected in 0.1x samples
+Pepdata$Peplist$All_0.1x <- unique(c(Pepdata$Peplist$no4su0.1x_01, Pepdata$Peplist$no4su0.1x_02, Pepdata$Peplist$`4su0.1x_01`, Pepdata$Peplist$`4su_0.1x_02`))
+
+
+# Proteins unique to 1x samples
+Pepdata$Peplist$only_1x <- setdiff(Pepdata$Peplist$All_1x, Pepdata$Peplist$All_0.1x)
+View(Prot_table[Prot_table$Pept_ID %in% Pepdata$Peplist$only_1x,])
+
+# Proteins unique to 0.1x samples
+Pepdata$Peplist$only_0.1x <- setdiff(Pepdata$Peplist$All_0.1x, Pepdata$Peplist$All_1x)
+View(Prot_table[Prot_table$Pept_ID %in% Pepdata$Peplist$only_0.1x,])
+
+
+# Generate list of peptides found in each treatment with at least one non-zero value
+Pepdata$Peplist$no4su_1x <- unique(Pepdata$Peplist$no4su_01, Pepdata$Peplist$no4su_02)
+Pepdata$Peplist$no4su_0.1x <- unique(Pepdata$Peplist$no4su0.1x_01, Pepdata$Peplist$no4su0.1x_02)
+Pepdata$Peplist$plus4su_1x <- unique(Pepdata$Peplist$`4su_01`,  Pepdata$Peplist$`4su_02`)
+Pepdata$Peplist$plus4su_0.1x <- unique(Pepdata$Peplist$`4su0.1x_01`, Pepdata$Peplist$`4su_0.1x_02`)
+
+#Measure variance of samples
+Prot_table$no4su_1x_Var <- apply(Prot_table[,c("no4su_01_Norm","no4su_02_Norm")],1,var)
+Prot_table$no4su_0.1x_Var <- apply(Prot_table[,c("no4su0.1x_01_Norm","no4su0.1x_02_Norm")],1,var)
+Prot_table$`4su_1x_Var` <- apply(Prot_table[,c("4su_01_Norm","4su_02_Norm")],1,var)
+Prot_table$`4su_0.1x_Var` <- apply(Prot_table[,c("4su0.1x_01_Norm", "4su_0.1x_02_Norm")],1,var)
+
+
+
+
+
+
+
+
+
