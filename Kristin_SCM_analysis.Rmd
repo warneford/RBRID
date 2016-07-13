@@ -1,0 +1,75 @@
+---
+title: "Kristin's SCM RBR-ID"
+author: "Robert Warneford-Thomson"
+date: "7/13/2016"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = T)
+```
+
+# Define Functions
+``` {r Data processing}
+
+NormRBR <-function(Data = Prot_table, minusCols = c(9:16), plusCols = c(17:22))
+  ## Function to normalize and analyze RBR peptide intensities. MinusCols and plusCols are numeric vectors defining, respectively, columns containing -4sU and +4sU replicates.
+  
+  
+{
+MinusSamples <- names(Data[minusCols])
+PlusSamples <- names(Data[plusCols])
+RawSamples <- names(Data[c(minusCols, plusCols)])
+
+# Assigns unique peptide ID to each peptide 
+Data[,RawSamples] <- as.numeric(unlist(Data[,c(minusCols, plusCols)]))
+Data <- cbind(Pept_ID = c(1:nrow(Data)), Data)
+
+# Normalize peptide intensity by Sum of total intensity (removing contaminants) in each replicate AKA set Euclidean length = 1
+
+Norm_data <- sweep(Data[,RawSamples], 2, colSums(Data[Data$Contaminant. != "+",RawSamples]), FUN = "/")
+names(Norm_data) <- paste0(RawSamples,"_Norm")
+Data <- cbind(Prot_table, Norm_data)
+
+
+
+
+# Update sample names
+MinusSamples_Norm <- paste0(MinusSamples, "_Norm")
+PlusSamples_Norm <- paste0(PlusSamples, "_Norm")
+
+# Compute averages of biological replicates
+Data$minus_mean <- rowMeans(Data[,MinusSamples_Norm])
+Data$plus_mean <- rowMeans(Data[,PlusSamples_Norm])
+
+# Calculate +4su/-4sU log2-fold change
+Data$log2fold <- log2(Data$plus_mean/Data$minus_mean)
+Data$log2fold[is.infinite(Data$log2fold) | is.nan(Data$log2fold)] <- NA
+
+# Calculate p values from two-sided t-test
+Data$p.value <- apply(Data[,c(PlusSamples_Norm, MinusSamples_Norm)], 1, function(x) 
+{ if (sum(!is.na(x[PlusSamples_Norm])) < 3 | sum(!is.na(x[MinusSamples_Norm])) <3)  {return(1)}
+  
+  else { t.test( x[PlusSamples_Norm], x[MinusSamples_Norm], paired = F, alternative = "two.sided")$p.value}})
+
+# Calculate RBR-ID score
+Data$RBRscore <- log(Data$p.value)*Data$log2fold
+
+return(Data)}
+```
+
+## Import RBR-ID data
+```{r}
+library(gdata)
+installXLSXsupport()
+Prot_table <-read.xls(xls = "Scm peptides - only good replicates.xlsx", sheet = 1)
+```
+
+# Analyse Kristen's data
+``` {r Analyse}
+KI_RBR <- NormRBR(Prot_table,minusCols = c(9:16),plusCols = c(17:22))
+
+```
+
+
+

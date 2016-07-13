@@ -2,7 +2,9 @@
 title: "RWT-46 PRC2 IP_RBRID"
 author: "Robert Warneford-Thomson"
 date: "6/24/2016"
-output: html_document
+output: 
+  pdf_document: 
+    highlight: zenburn
 ---
 
 ```{r setup, include=FALSE}
@@ -18,11 +20,20 @@ Prot_table <-read.xls(xls = "Robert test 1 with mouse proteome.xlsx", sheet = 1)
 
 ## Sanitize Sample names + Add description
 ```{r}
+NormRBR <-function(Data, minusCols = c(0), plusCols = c(0))
+  ## Function to normalize and analyze RBR peptide intensities. MinusCols and plusCols are numeric vectors defining, respectively, column numbers containing -4sU and +4sU replicates 
+{
+MinusSamples <- names(Data[minusCols])
+PlusSamples <- names(Data[plusCols])
+  
+  
+  
+}
+
 samples <-c("no4su_01","no4su_02","no4su0.1x_01", "no4su0.1x_02","4su_01","4su_02","4su0.1x_01","4su_0.1x_02")
 colnames(Prot_table)[8:15] <- samples
 Prot_table[,8:15] <- as.numeric(unlist(Prot_table[,8:15]))
 Prot_table <- cbind(Pept_ID = c(1:nrow(Prot_table)), Prot_table)
-View(Prot_table)
 ```
 
 ## normalize peptide intensity relative to total intensity
@@ -66,8 +77,9 @@ Prot_table$score_0.1x <- log(Prot_table$p.value_0.1x)*Prot_table$Log2fold_0.1x
 
 ```
 
-## Calculate 'Add-in' contaminant-to-signal ratio
-  These include proteins that were purposefully added to the samples during the experiment (e.g. Protein G from beads, rabbit IgG)
+## Calculate 'Internal' contaminant-to-signal ratio
+  These include proteins that were purposefully added to the samples during the experiment (e.g. Protein G from beads, rabbit IgG).
+  External contaminants are those that are commonly found in mass spectrometry runs
   
 ``` {r 'Add in'}
 
@@ -101,20 +113,24 @@ ggplot(datm,aes(x = variable, y = value, fill = Contaminant)) +
     geom_bar(position = "fill",stat = "identity") + 
     scale_y_continuous(labels = percent_format()) +
     coord_flip() +
-    scale_fill_discrete(guide = guide_legend(title = "Contaminant")) +
-    labs(x = "Treatment", y = "Percent of Total")
+    scale_fill_discrete(guide = guide_legend(title = "Signal Type")) +
+    labs(x = "Treatment", y = "Percent of Total", title = "RWT-46 Proportion of Signal to total intensity")
+    
 ```
+
+
 
 ## Determine reproducibility as f(x) of MS/MS input material
 ``` {r Reproducibility}
 
 # Obtain number of non-zero signal peptides per sample
 Pepdata <- list(Numpep = data.frame(ID = factor(samples, levels=unique(samples)), Numpep =  sapply(samples, function(x) +
-                                    {nrow(Prot_table[(is.na(Prot_table[[x]]) == F) & (Prot_table$Contaminant_type == "Signal"),])}, USE.NAMES = F)))
+                                    {nrow(Prot_table[(Prot_table[[x]] != 0) & (Prot_table$Contaminant_type == "Signal"),])}, USE.NAMES = F)))
+
 
 ggplot(Pepdata$Numpep, aes(x = ID, y = Numpep)) +
       geom_bar(stat = "identity", fill = "blue") +
-      labs(x = "Treatment", y = "# of peptides detected")
+      labs(x = "Treatment", y = "# of peptides detected", title = "RWT-46 Number of signal peptides detected")
 
 # Identify peptides found in each sample
 
@@ -126,24 +142,15 @@ names(Pepdata$Peplist) <- samples
 Pepdata$Peplist$All_1x <- unique(c(Pepdata$Peplist$no4su_01, Pepdata$Peplist$no4su_02,Pepdata$Peplist$`4su_01`, Pepdata$Peplist$`4su_02`))
 
 
-# All proteins detected in 0.1x samples
+# All peptides detected in 0.1x samples
 Pepdata$Peplist$All_0.1x <- unique(c(Pepdata$Peplist$no4su0.1x_01, Pepdata$Peplist$no4su0.1x_02, Pepdata$Peplist$`4su0.1x_01`, Pepdata$Peplist$`4su_0.1x_02`))
 
 
-# Proteins unique to 1x samples
+# Peptides unique to 1x samples
 Pepdata$Peplist$only_1x <- setdiff(Pepdata$Peplist$All_1x, Pepdata$Peplist$All_0.1x)
-View(Prot_table[Prot_table$Pept_ID %in% Pepdata$Peplist$only_1x,])
 
-# Proteins unique to 0.1x samples
+# Peptides unique to 0.1x samples
 Pepdata$Peplist$only_0.1x <- setdiff(Pepdata$Peplist$All_0.1x, Pepdata$Peplist$All_1x)
-View(Prot_table[Prot_table$Pept_ID %in% Pepdata$Peplist$only_0.1x,])
-
-
-# Generate list of peptides found in each treatment with at least one non-zero value
-Pepdata$Peplist$no4su_1x <- unique(Pepdata$Peplist$no4su_01, Pepdata$Peplist$no4su_02)
-Pepdata$Peplist$no4su_0.1x <- unique(Pepdata$Peplist$no4su0.1x_01, Pepdata$Peplist$no4su0.1x_02)
-Pepdata$Peplist$plus4su_1x <- unique(Pepdata$Peplist$`4su_01`,  Pepdata$Peplist$`4su_02`)
-Pepdata$Peplist$plus4su_0.1x <- unique(Pepdata$Peplist$`4su0.1x_01`, Pepdata$Peplist$`4su_0.1x_02`)
 
 #Measure variance of samples
 Prot_table$no4su_1x_Var <- apply(Prot_table[,c("no4su_01_Norm","no4su_02_Norm")],1,var)
@@ -151,11 +158,16 @@ Prot_table$no4su_0.1x_Var <- apply(Prot_table[,c("no4su0.1x_01_Norm","no4su0.1x_
 Prot_table$`4su_1x_Var` <- apply(Prot_table[,c("4su_01_Norm","4su_02_Norm")],1,var)
 Prot_table$`4su_0.1x_Var` <- apply(Prot_table[,c("4su0.1x_01_Norm", "4su_0.1x_02_Norm")],1,var)
 
+#Assign NA to variance=0 instances 
+Prot_table[,c("no4su_1x_Var", "no4su_0.1x_Var", "4su_1x_Var", "4su_0.1x_Var")][ Prot_table[,c("no4su_1x_Var", "no4su_0.1x_Var", "4su_1x_Var", "4su_0.1x_Var")] == 0] <- NA
 
+#Compute Distance Matrix
 
+foo <- data.matrix(dist(rbind(Prot_table$no4su_1x_Var, Prot_table$no4su_0.1x_Var, Prot_table$`4su_1x_Var`, Prot_table$`4su_0.1x_Var` )))
+rownames(foo) <- c("no4su_1x_Var", "no4su_0.1x_Var", "4su_1x_Var", "4su_0.1x_Var")
+colnames(foo) <- c("no4su_1x_Var", "no4su_0.1x_Var", "4su_1x_Var", "4su_0.1x_Var")
 
-
-
-
-
-
+# Plot distance function as heatmap
+library(gplots)
+heatmap.2(foo,dendrogram='none', Rowv=TRUE, Colv=TRUE,trace='none',margins = c(10, 10), srtRow = 45, srtCol = 45)
+```
