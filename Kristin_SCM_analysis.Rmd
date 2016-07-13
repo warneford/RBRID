@@ -70,6 +70,3 @@ Prot_table <-read.xls(xls = "Scm peptides - only good replicates.xlsx", sheet = 
 KI_RBR <- NormRBR(Prot_table,minusCols = c(9:16),plusCols = c(17:22))
 
 ```
-
-
-
