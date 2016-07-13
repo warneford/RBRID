@@ -1,35 +1,27 @@
 ---
-title: "RWT-46 PRC2 IP_RBRID"
+title: "Kristin's SCM RBR-ID"
 author: "Robert Warneford-Thomson"
-date: "6/24/2016"
-output: 
-  pdf_document: 
-    highlight: zenburn
+date: "7/13/2016"
+output: html_document
 ---
 
 ```{r setup, include=FALSE}
-knitr::opts_chunk$set(echo = TRUE, message=FALSE)
+knitr::opts_chunk$set(echo = TRUE)
 ```
+
 
 ## Import RBR-ID data
 ```{r}
 library(gdata)
 installXLSXsupport()
-Prot_table <-read.xls(xls = "Robert test 1 with mouse proteome.xlsx", sheet = 1)
+Prot_table <-read.xls(xls = "Scm peptides - only good replicates.xlsx", sheet = 1)
+View(Prot_table)
 ```
+
+
 
 ## Sanitize Sample names + Add description
 ```{r}
-NormRBR <-function(Data, minusCols = c(0), plusCols = c(0))
-  ## Function to normalize and analyze RBR peptide intensities. MinusCols and plusCols are numeric vectors defining, respectively, column numbers containing -4sU and +4sU replicates 
-{
-MinusSamples <- names(Data[minusCols])
-PlusSamples <- names(Data[plusCols])
-  
-  
-  
-}
-
 samples <-c("no4su_01","no4su_02","no4su0.1x_01", "no4su0.1x_02","4su_01","4su_02","4su0.1x_01","4su_0.1x_02")
 colnames(Prot_table)[8:15] <- samples
 Prot_table[,8:15] <- as.numeric(unlist(Prot_table[,8:15]))
@@ -116,58 +108,4 @@ ggplot(datm,aes(x = variable, y = value, fill = Contaminant)) +
     scale_fill_discrete(guide = guide_legend(title = "Signal Type")) +
     labs(x = "Treatment", y = "Percent of Total", title = "RWT-46 Proportion of Signal to total intensity")
     
-```
-
-
-
-## Determine reproducibility as f(x) of MS/MS input material
-``` {r Reproducibility}
-
-# Obtain number of non-zero signal peptides per sample
-Pepdata <- list(Numpep = data.frame(ID = factor(samples, levels=unique(samples)), Numpep =  sapply(samples, function(x) +
-                                    {nrow(Prot_table[(Prot_table[[x]] != 0) & (Prot_table$Contaminant_type == "Signal"),])}, USE.NAMES = F)))
-
-
-ggplot(Pepdata$Numpep, aes(x = ID, y = Numpep)) +
-      geom_bar(stat = "identity", fill = "blue") +
-      labs(x = "Treatment", y = "# of peptides detected", title = "RWT-46 Number of signal peptides detected")
-
-# Identify peptides found in each sample
-
-Pepdata$Peplist <- lapply(samples, function(x) {Prot_table[(is.na(Prot_table[[x]]) == F) & (Prot_table$Contaminant_type == "Signal"), c("Pept_ID")]})
-names(Pepdata$Peplist) <- samples
-
-
-# All peptides detected in 1x samples
-Pepdata$Peplist$All_1x <- unique(c(Pepdata$Peplist$no4su_01, Pepdata$Peplist$no4su_02,Pepdata$Peplist$`4su_01`, Pepdata$Peplist$`4su_02`))
-
-
-# All peptides detected in 0.1x samples
-Pepdata$Peplist$All_0.1x <- unique(c(Pepdata$Peplist$no4su0.1x_01, Pepdata$Peplist$no4su0.1x_02, Pepdata$Peplist$`4su0.1x_01`, Pepdata$Peplist$`4su_0.1x_02`))
-
-
-# Peptides unique to 1x samples
-Pepdata$Peplist$only_1x <- setdiff(Pepdata$Peplist$All_1x, Pepdata$Peplist$All_0.1x)
-
-# Peptides unique to 0.1x samples
-Pepdata$Peplist$only_0.1x <- setdiff(Pepdata$Peplist$All_0.1x, Pepdata$Peplist$All_1x)
-
-#Measure variance of samples
-Prot_table$no4su_1x_Var <- apply(Prot_table[,c("no4su_01_Norm","no4su_02_Norm")],1,var)
-Prot_table$no4su_0.1x_Var <- apply(Prot_table[,c("no4su0.1x_01_Norm","no4su0.1x_02_Norm")],1,var)
-Prot_table$`4su_1x_Var` <- apply(Prot_table[,c("4su_01_Norm","4su_02_Norm")],1,var)
-Prot_table$`4su_0.1x_Var` <- apply(Prot_table[,c("4su0.1x_01_Norm", "4su_0.1x_02_Norm")],1,var)
-
-#Assign NA to variance=0 instances 
-Prot_table[,c("no4su_1x_Var", "no4su_0.1x_Var", "4su_1x_Var", "4su_0.1x_Var")][ Prot_table[,c("no4su_1x_Var", "no4su_0.1x_Var", "4su_1x_Var", "4su_0.1x_Var")] == 0] <- NA
-
-#Compute Distance Matrix
-
-foo <- data.matrix(dist(rbind(Prot_table$no4su_1x_Var, Prot_table$no4su_0.1x_Var, Prot_table$`4su_1x_Var`, Prot_table$`4su_0.1x_Var` )))
-rownames(foo) <- c("no4su_1x_Var", "no4su_0.1x_Var", "4su_1x_Var", "4su_0.1x_Var")
-colnames(foo) <- c("no4su_1x_Var", "no4su_0.1x_Var", "4su_1x_Var", "4su_0.1x_Var")
-
-# Plot distance function as heatmap
-library(gplots)
-heatmap.2(foo,dendrogram='none', Rowv=TRUE, Colv=TRUE,trace='none',margins = c(10, 10), srtRow = 45, srtCol = 45)
 ```
