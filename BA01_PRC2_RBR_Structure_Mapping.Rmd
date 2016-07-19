@@ -1,0 +1,101 @@
+---
+title: "BA-01 PRC2 RBR Structural Analysis"
+author: "Robert Warneford-Thomson"
+date: "7/16/2016"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r Initialization, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, message=FALSE)
+require(seqinr)
+require(GenomicRanges)
+require(gplots)
+require(gdata)
+```
+``` {r Information}
+Experiment = "BA01"
+Descriptor = "CSH_proteome_RBRID" #Analysis of PRC2 proteins from Chongsheng's proteome wide dataset
+Date = "18Jul2016" 
+
+if (!any(grepl(Experiment, list.dirs("~/analyses/")))) {dir.create(path = paste0("~/analyses/", Experiment))}
+```
+
+
+# Analysis of Chongsheng's Proteome wide data for PRC2
+## Load file of functions
+``` {r functions}
+source("RBRID_functions.R")
+```
+## Import Chongsheng's data
+```{r import}
+CSH_data <- readRDS("160419.RBRID.table.PRC2.rds")
+names(CSH_data)[names(CSH_data) == "score.312"] <- "RBRscore"
+
+# Filter p value
+CSH_data <- CSH_data[CSH_data$pval.312 < 0.2 ,]
+
+# Subset peptides depleted greater than 5%
+CSH_data <- CSH_data[CSH_data$logFold.312 < log2(0.95),]
+
+
+
+# Convert EZH2 Q571L5 isoform peptide ranges to canonical Q61188 isoform (remove 33 N-terminal amino acids)
+CSH_data$start[CSH_data$uniprotID== "Q571L5"] <- CSH_data$start[CSH_data$uniprotID == "Q571L5"] - 33
+CSH_data$end[CSH_data$uniprotID== "Q571L5"] <- CSH_data$end[CSH_data$uniprotID == "Q571L5"] - 33
+CSH_data$uniprotID[CSH_data$uniprotID == "Q571L5"] <- "Q61188"
+
+
+```
+## Create necessary files
+``` {r files}
+# Create table of protein lengths from Uniprot mouse proteome
+Proteome <-read.fasta(file = "Mouse_proteome_15Jul2016.fasta", seqtype = "AA", as.string = T)
+
+uniprotID <- sapply(names(Proteome), function(x){strsplit(x, split = "[|]")[[c(1, 2)]]}, USE.NAMES = F)
+len <- unname(sapply(Proteome, function(x){nchar(x)[1]}))
+Lengths <- data.frame(uniprotID = uniprotID, Length = len, stringsAsFactors = F)
+
+anno<-CSH_data
+prot.anno<-CSH_data[!CSH_data$contaminant,c("uniprotID","symbol","name")]
+prot.anno<-prot.anno[order(prot.anno$name, decreasing=T),]
+prot.anno<-prot.anno[!duplicated(prot.anno$uniprotID),]
+prot.anno<-prot.anno[order(prot.anno$uniprotID),]
+prot.anno<-merge(prot.anno, Lengths, by="uniprotID")
+
+# convert to grange
+prot.gr<- GRanges(seqnames=Rle(prot.anno$uniprotID), ranges=IRanges(start=1, end=prot.anno$Length))
+prot.gr$symbol <-prot.anno$symbol
+
+# prepare peptide grange
+pep.gr<-GRanges(seqnames=Rle(anno$uniprotID),ranges=IRanges(start=anno$start,end=anno$end))
+pep.gr$pepID<-anno$pept_ID; pep.gr$unique<-anno$unique; pep.gr$contaminant<-anno$contaminant; pep.gr$sequence<-anno$Sequence
+
+# Calculate protein coverage
+  # rm(list=c("end","start")) # this is because the worker nodes behave strangely otherwise
+  cl<-makeCluster(15)
+  clusterExport(cl, list("subsetByOverlaps","reduce","width","end")) # must pass non-conventional functions to worker nodes
+  coverage<-parSapply(cl=cl,prot.gr,calculateCoverage.apply, peps=pep.gr) # this takes about 1'15" with 30 nodes
+  stopCluster(cl)
+  prot.gr$coverage<-coverage*100
+  saveRDS(prot.gr,"intermediate_files/prot.gr.coverage.160715.rds")
+  prot.gr<-readRDS("intermediate_files/prot.gr.coverage.160715.rds")
+  
+## calculate score
+  pep.gr$score<-anno$RBRscore
+  saveRDS(pep.gr, "intermediate_files/pep.gr.score312.160715.rds")
+  
+```
+
+
+
+# Plot score for PRC2 subunits
+  Additionally I am outputting an attribute file that can be rendered using Chimera onto PDB structures
+``` {r scoreplot}
+PRC2list= c("Ezh2", "Eed", "Suz12", "Aebp2", "Jarid2", "Mtf2")
+listScoreplot(Proteins = PRC2list, Range = prot.gr, peps = pep.gr, Experiment = Experiment, PDB = "5IJ7", Descriptor = Descriptor, Date = Date)
+
+```

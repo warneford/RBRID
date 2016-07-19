@@ -1,0 +1,96 @@
+---
+title: "RWT-46 Signal-to-Contaminant Analysis"
+author: "Robert Warneford-Thomson"
+date: "7/18/2016"
+output: html_document
+---
+
+```{r Initialization, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, message=FALSE)
+require(gplots)
+require(gdata)
+require(ggplot2)
+require(reshape2)
+require(scales)
+require(seqinr)
+```
+
+``` {r Information}
+Experiment = "RWT46"
+Descriptor = "SignalNoiseRatio" #Analysis of how much signal there is compared to contaminants in data
+Date = "18Jul2016" 
+
+if (!any(grepl(Experiment, list.dirs("~/analyses/")))) {dir.create(path = paste0("~/analyses/", Experiment))}
+```
+
+# Load Functions
+```{r}
+# Load file of functions
+source("RBRID_functions.R")
+```
+
+## Import and analyze RBR-ID data
+```{r Import}
+installXLSXsupport()
+Prot_table <-read.xls(xls = "Robert test 1 with mouse proteome.xlsx", sheet = 1)
+samples <-c("no4su_01","no4su_02","no4su0.1x_01", "no4su0.1x_02","4su_01","4su_02","4su0.1x_01","4su_0.1x_02")
+colnames(Prot_table)[8:15] <- samples
+
+Prot_data <- NormRBR(Data = Prot_table, minusCols = c(8:9), plusCols = c(12:13), pvalcutoff = Pvaluecutoff, depletionfactor = MinDepletion, cutoff = F)
+
+```
+
+
+##Calculate ‘Internal’ contaminant-to-signal ratio
+These include proteins that were purposefully added to the samples during the experiment (e.g. Protein G from beads, rabbit IgG). External contaminants are those that are commonly found in mass spectrometry runs
+
+```{r annotations}
+# Create table of contaminant proteins
+Contaminants <- read.fasta(file = "contaminants.fasta", seqtype = "AA", as.string = T)
+
+# Make list of Keratin uniprot IDs
+Keratin_IDs<- sapply(Contaminants, function(x){ grepl(".*Keratin.*" , attr(x, which = "Annot"))})
+Keratin_IDS<- attr(Contaminants[which(Keratin_IDs)], which = "name")
+
+IgG_ID <- c("P01870","P01826", "P01840","P01687")# Rabbit IgG Uniprot IDs 
+Addin_ID <- c("P19909", IgG_ID) # Protein G = P19909 
+
+# Assign names to Add-in contaminants
+Prot_data$name[subsetID(c("P19909"), "uniprotID", Prot_data)] <- "Protein G"
+Prot_data$name[subsetID(IgG_ID, "uniprotID", Prot_data)] <- "Rabbit IgG"
+
+
+Prot_data$name[subsetID(Keratin_IDS, category = "uniprotID", data = Prot_data)] <- "Keratin" # Assign names to Keratin peptides
+
+Prot_data$name[Prot_data$contaminant ==T & (Prot_data$name != "Protein G") & (Prot_data$name != "Keratin") & (Prot_data$name != "Rabbit IgG")] <- "Other" # Label extraneous contaminants as Other
+
+      # Assign names to contaminants for total protein signal breakdown
+      Prot_data[,"Contaminant_type"] <- "Signal Peptides"
+      Prot_data$Contaminant_type[subsetID(c("P19909"), "uniprotID", Prot_data)] <- "Protein G"
+      Prot_data$Contaminant_type[subsetID(IgG_ID, "uniprotID", Prot_data)] <- "Rabbit IgG"
+      
+      # Assign names to Keratin peptides
+      Prot_data$Contaminant_type[subsetID(Keratin_IDS, category = "uniprotID", data = Prot_data)] <- "Keratin"
+      
+      # Label extraneous contaminants as Other
+      Prot_data$Contaminant_type[Prot_data$contaminant ==T & (Prot_data$name != "Protein G") & (Prot_data$name != "Keratin") & (Prot_data$name != "Rabbit IgG")] <- "Other"
+
+## Calcuate proportion of Contaminants to total peptide intensities
+## Calculate total contaminant-to-signal ratio
+Contam_prop <- data.frame(ID = names(Prot_data)[9:16], 
+          ProteinG = colSums(Prot_data[which(Prot_data$Contaminant_type == "Protein G"),c(9:16)])/colSums(Prot_data[c(9:16)]),
+          Keratin = colSums(Prot_data[which(Prot_data$Contaminant_type == "Keratin"),c(9:16)])/colSums(Prot_data[c(9:16)]),
+          IgG = colSums(Prot_data[which(Prot_data$Contaminant_type == "Rabbit IgG"),c(9:16)])/colSums(Prot_data[c(9:16)]))
+
+# Plot contaminant-to-signal 
+#Add an id variable for the filled regions
+datm <- melt(cbind(Prot_data[,c(9:16)], Contaminant = Prot_data$Contaminant_type), id.vars = c('Contaminant')) 
+ggplot(datm,aes(x = variable, y = value, fill = Contaminant)) + 
+    geom_bar(position = "fill",stat = "identity") + 
+    scale_y_continuous(labels = percent_format()) +
+    coord_flip() +
+    scale_fill_discrete(guide = guide_legend(title = "Identity")) +
+    labs(x = "Treatment", y = "Percent of Total", title = "RWT-46 Breakdown of contaminants to total signal")
+```
+
+

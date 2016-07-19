@@ -1,0 +1,59 @@
+---
+title: "RBR plots"
+author: "Robert Warneford-Thomson"
+date: "7/15/2016"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = T)
+```
+
+#Load Libraries
+``` {r}
+require(seqinr)
+require(GenomicRanges)
+require(gplots)
+require(gdata)
+require(IRanges)
+```
+
+#Load and analyze EZH2 pull-down RBR-ID
+```{r Analysis}
+installXLSXsupport()
+Prot_table <-read.xls(xls = "Robert test 1 with mouse proteome.xlsx", sheet = 1)
+Prot_table_1x
+names(Ptab)
+```
+
+
+
+``` {r}
+
+# Create table of protein lengths from Uniprot mouse proteome
+Proteome <-read.fasta(file = "Mouse_proteome_15Jul2016.fasta", seqtype = "AA", as.string = T)
+
+uniprotID <- sapply(names(Proteome), function(x){strsplit(x, split = "[|]")[[c(1, 2)]]}, USE.NAMES = F)
+len <- unname(sapply(Proteome, function(x){nchar(x)[1]}))
+Lengths <- data.frame(uniprotID = uniprotID, Length = len, stringsAsFactors = F)
+
+# loads annotation from peptideAnnotation table
+
+anno <- Prot_table_1x
+prot.anno<-anno[!anno$contaminant,c("uniprotID","symbol","name")]
+prot.anno<-prot.anno[order(prot.anno$name, decreasing=T),]
+prot.anno<-prot.anno[!duplicated(prot.anno$uniprotID),]
+prot.anno<-prot.anno[order(prot.anno$uniprotID),]
+prot.anno<-merge(prot.anno, Lengths, by="uniprotID")
+View(prot.anno)
+
+# convert to grange
+prot.gr<- GRanges(seqnames=Rle(prot.anno$uniprotID), ranges=IRanges(start=1, end=prot.anno$Length))
+prot.gr$symbol <-prot.anno$symbol
+
+# prepare peptide grange
+pep.gr<-GRanges(seqnames=Rle(anno$uniprotID),ranges=IRanges(start=anno$Start.position,end=anno$End.position))
+pep.gr$pepID<-anno$pepID; pep.gr$unique<-anno$unique; pep.gr$contaminant<-anno$contaminant; pep.gr$sequence<-anno$Sequence
+
+
+```
